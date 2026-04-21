@@ -1,5 +1,7 @@
 # Generated output — not committed
 data/sugerencia_insumos.csv
+data/lista_validada.csv
+data/lista_validada.pdf
 
 # Python cache
 __pycache__/

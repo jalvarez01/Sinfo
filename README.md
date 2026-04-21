@@ -56,11 +56,13 @@ Sinfo/
 ├── src/
 │   ├── data_cleaning.py             # Limpieza y normalización de datos
 │   ├── prediction_engine.py         # Motor de predicción (regresión lineal semanal)
-│   └── ingredient_calculator.py     # Cálculo de requerimientos de insumos
+│   ├── ingredient_calculator.py     # Cálculo de requerimientos de insumos
+│   └── review_interface.py          # Interfaz de ajuste y validación humana (HU-02)
 ├── tests/
 │   ├── test_data_cleaning.py
 │   ├── test_prediction_engine.py
-│   └── test_ingredient_calculator.py
+│   ├── test_ingredient_calculator.py
+│   └── test_review_interface.py
 ├── main.py                          # Punto de entrada del pipeline
 └── requirements.txt
 ```
@@ -91,6 +93,86 @@ python main.py --weeks 8 --sales data/historico_ventas_sample.csv \
 | `--recipe` | Ruta al CSV de la receta estándar                   | `data/receta_estandar.csv`             |
 | `--output` | Ruta de salida para el CSV de sugerencias           | `data/sugerencia_insumos.csv`          |
 | `--weeks`  | Número de semanas a proyectar                       | `4`                                    |
+
+---
+
+## HU-02: Interfaz de Ajuste y Validación Humana (Implementación)
+
+Permite al Administrador Operativo revisar las cantidades sugeridas por la IA, aplicar
+ajustes manuales (override), detectar desviaciones significativas (> 20 %) y exportar
+la lista validada a CSV y/o PDF para enviarla al proveedor.
+
+> **Importante:** el sistema **no ejecuta compras automáticamente**. Su función termina
+> al generar la lista validada para que el usuario proceda con el proveedor externamente.
+
+### Módulo `src/review_interface.py`
+
+| Función | Descripción |
+|---|---|
+| `prepare_review_table(requirements_df)` | Construye la tabla comparativa con `cantidad_sugerida_ia` y `cantidad_final` |
+| `apply_override(review_df, insumo, nueva_cantidad)` | Aplica una cantidad final personalizada para un insumo |
+| `flag_significant_deviations(review_df, threshold=0.20)` | Marca filas cuya edición difiere > 20 % de la sugerencia IA |
+| `finalize_review(review_df)` | Congela la lista (marcándola como finalizada) |
+| `export_to_csv(review_df, output_path)` | Exporta la lista validada a CSV |
+| `export_to_pdf(review_df, output_path)` | Exporta la lista validada a PDF |
+| `print_review_table(review_df)` | Imprime la tabla comparativa en consola con marcas de alerta |
+
+### Uso
+
+```bash
+# Ejecutar pipeline + abrir revisión interactiva
+python main.py --review
+
+# Revisar sugerencias ya generadas y exportar también en PDF
+python main.py --review --suggestions data/sugerencia_insumos.csv --export-pdf
+```
+
+#### Argumentos adicionales para la revisión
+
+| Argumento | Descripción |
+|---|---|
+| `--review` | Activa la interfaz interactiva de revisión humana (HU-02) |
+| `--suggestions` | Ruta al CSV de sugerencias a revisar (por defecto usa `--output`) |
+| `--export-pdf` | Exporta también la lista validada en formato PDF |
+
+#### Ejemplo de sesión interactiva
+
+```
+============================================================
+  HU-02: Interfaz de Ajuste y Validación Humana
+============================================================
+
+===========================================================================
+  TABLA COMPARATIVA DE INSUMOS — REVISIÓN HUMANA
+===========================================================================
+Insumo                         Unidad         Cant. IA  Cant. Final  Alerta
+---------------------------------------------------------------------------
+Gaseosa                        ml           623,766.50   623,766.50
+Papa frita                     gramos       287,724.50   287,724.50
+...
+
+Introduzca los ajustes manuales. Escriba 'listo' para finalizar la revisión.
+Formato: <nombre_insumo> <nueva_cantidad>
+
+> Gaseosa 700000
+  ✔ Gaseosa: 700,000.00
+
+> Papa frita 200000
+  ✔ Papa frita: 200,000.00  ⚠  Desviación > 20 % respecto a la sugerencia de la IA
+
+> listo
+
+✔  Lista validada exportada a CSV: data/lista_validada.csv
+✔  Revisión finalizada. La lista está lista para enviar al proveedor.
+   (El sistema NO ejecuta compras automáticamente.)
+```
+
+### Archivos de salida
+
+| Archivo | Descripción |
+|---|---|
+| `data/lista_validada.csv` | Lista de insumos validada en formato CSV |
+| `data/lista_validada.pdf` | Lista de insumos validada en formato PDF (requiere `--export-pdf`) |
 
 ### Pipeline
 
