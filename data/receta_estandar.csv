@@ -1,0 +1,57 @@
+producto,insumo,cantidad_por_unidad,unidad_medida
+Hamburguesa Clásica,Pan de hamburguesa,1,unidad
+Hamburguesa Clásica,Carne de res molida,150,gramos
+Hamburguesa Clásica,Queso tajado,1,tajada
+Hamburguesa Clásica,Lechuga,20,gramos
+Hamburguesa Clásica,Tomate,30,gramos
+Hamburguesa Clásica,Salsa de tomate,15,ml
+Hamburguesa Clásica,Mayonesa,10,ml
+Hamburguesa BBQ,Pan de hamburguesa,1,unidad
+Hamburguesa BBQ,Carne de res molida,180,gramos
+Hamburguesa BBQ,Queso tajado,2,tajada
+Hamburguesa BBQ,Tocineta,30,gramos
+Hamburguesa BBQ,Salsa BBQ,25,ml
+Hamburguesa BBQ,Cebolla caramelizada,20,gramos
+Hamburguesa Pollo,Pan de hamburguesa,1,unidad
+Hamburguesa Pollo,Pechuga de pollo,160,gramos
+Hamburguesa Pollo,Queso tajado,1,tajada
+Hamburguesa Pollo,Lechuga,20,gramos
+Hamburguesa Pollo,Tomate,30,gramos
+Hamburguesa Pollo,Mayonesa,15,ml
+Perro Caliente Sencillo,Pan perro caliente,1,unidad
+Perro Caliente Sencillo,Salchicha,1,unidad
+Perro Caliente Sencillo,Salsa de tomate,10,ml
+Perro Caliente Sencillo,Mostaza,5,ml
+Perro Caliente Especial,Pan perro caliente,1,unidad
+Perro Caliente Especial,Salchicha,1,unidad
+Perro Caliente Especial,Papas chip,30,gramos
+Perro Caliente Especial,Queso tajado,1,tajada
+Perro Caliente Especial,Salsa de tomate,10,ml
+Perro Caliente Especial,Mayonesa,10,ml
+Papas Fritas,Papa frita,200,gramos
+Papas Fritas,Aceite de cocina,50,ml
+Papas Fritas,Sal,3,gramos
+Papas Medianas,Papa frita,120,gramos
+Papas Medianas,Aceite de cocina,30,ml
+Papas Medianas,Sal,2,gramos
+Bebida Gaseosa,Gaseosa,350,ml
+Jugo Natural,Fruta mixta,150,gramos
+Jugo Natural,Azúcar,20,gramos
+Jugo Natural,Agua,200,ml
+Combo Hamburguesa,Pan de hamburguesa,1,unidad
+Combo Hamburguesa,Carne de res molida,150,gramos
+Combo Hamburguesa,Queso tajado,1,tajada
+Combo Hamburguesa,Lechuga,20,gramos
+Combo Hamburguesa,Tomate,30,gramos
+Combo Hamburguesa,Salsa de tomate,15,ml
+Combo Hamburguesa,Mayonesa,10,ml
+Combo Hamburguesa,Papa frita,150,gramos
+Combo Hamburguesa,Aceite de cocina,40,ml
+Combo Hamburguesa,Gaseosa,350,ml
+Combo Perro,Pan perro caliente,1,unidad
+Combo Perro,Salchicha,1,unidad
+Combo Perro,Salsa de tomate,10,ml
+Combo Perro,Mostaza,5,ml
+Combo Perro,Papa frita,150,gramos
+Combo Perro,Aceite de cocina,40,ml
+Combo Perro,Gaseosa,350,ml
