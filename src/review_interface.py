@@ -27,6 +27,18 @@ import pandas as pd
 _DEVIATION_THRESHOLD = 0.20  # 20 %
 
 
+def _empty_text_series(length: int) -> pd.Series:
+    return pd.Series([""] * length)
+
+
+def _is_review_export_schema(df: pd.DataFrame) -> bool:
+    return {"insumo", "unidad_medida", "cantidad_requerida"}.issubset(df.columns)
+
+
+def _is_suggestion_schema(df: pd.DataFrame) -> bool:
+    return {"Insumo", "Cantidad_Sugerida_IA"}.issubset(df.columns)
+
+
 # ---------------------------------------------------------------------------
 # 1. Preparación de la tabla de revisión
 # ---------------------------------------------------------------------------
@@ -55,16 +67,40 @@ def prepare_review_table(requirements_df: pd.DataFrame) -> pd.DataFrame:
     Raises:
         ValueError: Si faltan columnas requeridas en *requirements_df*.
     """
-    required_cols = {"insumo", "unidad_medida", "cantidad_requerida"}
-    missing = required_cols - set(requirements_df.columns)
-    if missing:
+    if _is_review_export_schema(requirements_df):
+        review = requirements_df[["insumo", "unidad_medida", "cantidad_requerida"]].copy()
+        review = review.rename(columns={"cantidad_requerida": "cantidad_sugerida_ia"})
+        review["cantidad_final"] = review["cantidad_sugerida_ia"].copy()
+    elif _is_suggestion_schema(requirements_df):
+        review = pd.DataFrame(
+            {
+                "insumo": requirements_df["Insumo"].astype(str).str.strip(),
+                "unidad_medida": requirements_df["Unidad_Medida"].astype(str).str.strip()
+                if "Unidad_Medida" in requirements_df.columns
+                else _empty_text_series(len(requirements_df)),
+                "cantidad_sugerida_ia": pd.to_numeric(
+                    requirements_df["Cantidad_Sugerida_IA"], errors="coerce"
+                ).fillna(0.0),
+            }
+        )
+        if "Cantidad_Ajustada_Humano" in requirements_df.columns:
+            cantidad_final = pd.to_numeric(
+                requirements_df["Cantidad_Ajustada_Humano"], errors="coerce"
+            ).fillna(review["cantidad_sugerida_ia"])
+        else:
+            cantidad_final = review["cantidad_sugerida_ia"].copy()
+        review["cantidad_final"] = cantidad_final
+    else:
+        required_cols = {"insumo", "unidad_medida", "cantidad_requerida"}
+        missing = required_cols - set(requirements_df.columns)
         raise ValueError(f"Columnas faltantes en requirements_df: {missing}")
 
-    review = requirements_df[["insumo", "unidad_medida", "cantidad_requerida"]].copy()
-    review = review.rename(columns={"cantidad_requerida": "cantidad_sugerida_ia"})
-    review["cantidad_final"] = review["cantidad_sugerida_ia"].copy()
     review["desviacion_significativa"] = False
-    review["finalizada"] = False
+    if "Estado" in requirements_df.columns:
+        estado = requirements_df["Estado"].astype(str).str.strip().str.lower()
+        review["finalizada"] = estado.isin({"finalizada", "validada", "cerrada", "lista", "listo", "final"})
+    else:
+        review["finalizada"] = False
     return review.reset_index(drop=True)
 
 

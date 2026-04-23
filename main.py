@@ -33,18 +33,27 @@ import sys
 import pandas as pd
 
 from src.data_cleaning import clean_historical_data
-from src.ingredient_calculator import calculate_ingredient_requirements, load_standard_recipe
+from src.ingredient_calculator import (
+    add_inventory_context,
+    calculate_ingredient_requirements,
+    load_inventory,
+    load_standard_recipe,
+)
 from src.prediction_engine import generate_predictions
 
-DEFAULT_SALES_PATH = os.path.join("data", "historico_ventas_sample.csv")
-DEFAULT_RECIPE_PATH = os.path.join("data", "receta_estandar.csv")
-DEFAULT_OUTPUT_PATH = os.path.join("data", "sugerencia_insumos.csv")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DEFAULT_SALES_PATH = os.path.join(BASE_DIR, "data", "historico_ventas_sample.csv")
+DEFAULT_RECIPE_PATH = os.path.join(BASE_DIR, "data", "receta_estandar.csv")
+DEFAULT_INVENTORY_PATH = os.path.join(BASE_DIR, "data", "inventarioActual.csv")
+DEFAULT_OUTPUT_PATH = os.path.join(BASE_DIR, "data", "sugerencia_insumos.csv")
 DEFAULT_HORIZON_WEEKS = 4
 
 
 def run_pipeline(
     sales_path: str = DEFAULT_SALES_PATH,
     recipe_path: str = DEFAULT_RECIPE_PATH,
+    inventory_path: str = DEFAULT_INVENTORY_PATH,
     output_path: str = DEFAULT_OUTPUT_PATH,
     horizon_weeks: int = DEFAULT_HORIZON_WEEKS,
 ) -> None:
@@ -53,6 +62,7 @@ def run_pipeline(
     Args:
         sales_path: Ruta al CSV con el histórico de ventas.
         recipe_path: Ruta al CSV con la receta estándar.
+        inventory_path: Ruta al CSV con el inventario físico actual.
         output_path: Ruta donde se guardará el CSV con la sugerencia de insumos.
         horizon_weeks: Número de semanas a proyectar.
     """
@@ -79,6 +89,12 @@ def run_pipeline(
     print("\n[3/3] Calculando requerimientos de insumos…")
     recipe = load_standard_recipe(recipe_path)
     requirements = calculate_ingredient_requirements(predictions, recipe)
+    if os.path.exists(inventory_path):
+        inventory = load_inventory(inventory_path)
+        requirements = add_inventory_context(requirements, inventory)
+        print(f"      Inventario cargado: {len(inventory)} insumos")
+    else:
+        print(f"      [AVISO] No se encontró inventario físico en: {inventory_path}")
     print(f"      Insumos identificados: {len(requirements)}")
 
     # ── Exportar resultados ────────────────────────────────────
@@ -195,6 +211,7 @@ def main(argv=None):
     )
     parser.add_argument("--sales", default=DEFAULT_SALES_PATH, help="Ruta al CSV del histórico de ventas")
     parser.add_argument("--recipe", default=DEFAULT_RECIPE_PATH, help="Ruta al CSV de la receta estándar")
+    parser.add_argument("--inventory", default=DEFAULT_INVENTORY_PATH, help="Ruta al CSV del inventario físico actual")
     parser.add_argument("--output", default=DEFAULT_OUTPUT_PATH, help="Ruta de salida para el CSV de sugerencias")
     parser.add_argument("--weeks", type=int, default=DEFAULT_HORIZON_WEEKS, help="Semanas a proyectar")
     parser.add_argument(
@@ -219,6 +236,7 @@ def main(argv=None):
             run_pipeline(
                 sales_path=args.sales,
                 recipe_path=args.recipe,
+                inventory_path=args.inventory,
                 output_path=args.output,
                 horizon_weeks=args.weeks,
             )
@@ -227,6 +245,7 @@ def main(argv=None):
         run_pipeline(
             sales_path=args.sales,
             recipe_path=args.recipe,
+            inventory_path=args.inventory,
             output_path=args.output,
             horizon_weeks=args.weeks,
         )

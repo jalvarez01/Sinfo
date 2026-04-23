@@ -7,12 +7,22 @@ import pandas as pd
 import pytest
 
 from src.ingredient_calculator import (
+    add_inventory_context,
     calculate_ingredient_requirements,
+    load_inventory,
     load_standard_recipe,
 )
 
 
 def _make_recipe_csv(rows) -> str:
+    df = pd.DataFrame(rows)
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+    df.to_csv(f.name, index=False)
+    f.close()
+    return f.name
+
+
+def _make_inventory_csv(rows) -> str:
     df = pd.DataFrame(rows)
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
     df.to_csv(f.name, index=False)
@@ -28,6 +38,30 @@ class TestLoadStandardRecipe:
         try:
             df = load_standard_recipe(tmp)
             assert len(df) == 1
+        finally:
+            os.unlink(tmp)
+
+
+class TestLoadInventory:
+    def test_loads_valid_csv(self):
+        tmp = _make_inventory_csv([
+            {"Insumo": "Pan", "Stock_Fisico": 25},
+        ])
+        try:
+            df = load_inventory(tmp)
+            assert list(df.columns) == ["insumo", "stock_fisico"]
+            assert df.loc[0, "insumo"] == "Pan"
+            assert df.loc[0, "stock_fisico"] == 25
+        finally:
+            os.unlink(tmp)
+
+    def test_raises_on_missing_columns(self):
+        tmp = _make_inventory_csv([
+            {"Insumo": "Pan"},
+        ])
+        try:
+            with pytest.raises(ValueError, match="Columnas faltantes"):
+                load_inventory(tmp)
         finally:
             os.unlink(tmp)
 
@@ -93,3 +127,32 @@ class TestCalculateIngredientRequirements:
     def test_zero_sales_produce_zero_ingredient(self):
         result = calculate_ingredient_requirements(self._base_predictions(hamburguesa=0, papas=0), self._base_recipe())
         assert (result["cantidad_requerida"] == 0).all()
+
+
+class TestAddInventoryContext:
+    def test_adds_stock_columns(self):
+        requirements = pd.DataFrame([
+            {"insumo": "Pan", "unidad_medida": "unidad", "cantidad_requerida": 10.0},
+            {"insumo": "Carne", "unidad_medida": "gramos", "cantidad_requerida": 200.0},
+        ])
+        inventory = pd.DataFrame([
+            {"insumo": "Pan", "stock_fisico": 25},
+            {"insumo": "Carne", "stock_fisico": 150},
+        ])
+
+        result = add_inventory_context(requirements, inventory)
+
+        assert set(["stock_fisico", "faltante_vs_stock", "alerta_stock"]).issubset(result.columns)
+        assert not bool(result.loc[result["insumo"] == "Pan", "alerta_stock"].iloc[0])
+        assert bool(result.loc[result["insumo"] == "Carne", "alerta_stock"].iloc[0])
+
+    def test_raises_on_missing_inventory_columns(self):
+        requirements = pd.DataFrame([
+            {"insumo": "Pan", "unidad_medida": "unidad", "cantidad_requerida": 10.0},
+        ])
+        inventory = pd.DataFrame([
+            {"insumo": "Pan"},
+        ])
+
+        with pytest.raises(ValueError, match="Columnas faltantes"):
+            add_inventory_context(requirements, inventory)

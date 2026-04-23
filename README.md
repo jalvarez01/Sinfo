@@ -12,6 +12,7 @@ Desarrollar una herramienta tecnológica basada en el análisis de datos histór
 * Procesamiento y limpieza de datos históricos (más de 11,000 registros).
 * Generación de sugerencias de pedido mediante modelos predictivos.
 * Segmentación de la demanda y sugerencias por sede.
+* Cruce automático con inventario físico para detectar faltantes por insumo.
 * Interfaz de validación manual para que el administrador ajuste las cantidades sugeridas.
 * Exportación de listas de pedidos validadas.
 
@@ -53,6 +54,7 @@ Sinfo/
 ├── data/
 │   ├── historico_ventas_sample.csv  # Histórico de ventas de muestra (11 530 registros)
 │   └── receta_estandar.csv          # Receta estándar por producto
+│   └── inventarioActual.csv         # Inventario físico actual por insumo
 ├── src/
 │   ├── data_cleaning.py             # Limpieza y normalización de datos
 │   ├── prediction_engine.py         # Motor de predicción (regresión lineal semanal)
@@ -82,6 +84,7 @@ python main.py
 # Personalizar horizonte de predicción y rutas
 python main.py --weeks 8 --sales data/historico_ventas_sample.csv \
                --recipe data/receta_estandar.csv \
+               --inventory data/inventarioActual.csv \
                --output data/sugerencia_insumos.csv
 ```
 
@@ -91,6 +94,7 @@ python main.py --weeks 8 --sales data/historico_ventas_sample.csv \
 |------------|-----------------------------------------------------|----------------------------------------|
 | `--sales`  | Ruta al CSV del histórico de ventas                 | `data/historico_ventas_sample.csv`     |
 | `--recipe` | Ruta al CSV de la receta estándar                   | `data/receta_estandar.csv`             |
+| `--inventory` | Ruta al CSV del inventario físico actual        | `data/inventarioActual.csv`            |
 | `--output` | Ruta de salida para el CSV de sugerencias           | `data/sugerencia_insumos.csv`          |
 | `--weeks`  | Número de semanas a proyectar                       | `4`                                    |
 
@@ -190,6 +194,7 @@ Formato: <nombre_insumo> <nueva_cantidad>
    - Vincula las predicciones con la receta estándar.
    - Multiplica ventas proyectadas × cantidad por unidad.
    - Agrega el total de cada insumo y lo exporta a CSV.
+   - Cruza el resultado con el inventario físico para añadir stock, faltante y alerta.
 
 ### Pruebas
 

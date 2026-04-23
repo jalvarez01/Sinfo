@@ -14,6 +14,21 @@ Operaciones realizadas:
 import pandas as pd
 
 
+def _normalize_historical_columns(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        "ID": "id",
+        "Fecha": "fecha",
+        "Producto": "producto",
+        "Sucursal": "sucursal",
+        "Cantidad": "cantidad",
+        "Precio_Unitario": "precio_unitario",
+        "nota": "nota",
+        "Nota": "nota",
+    }
+    existing_map = {src: dst for src, dst in rename_map.items() if src in df.columns}
+    return df.rename(columns=existing_map)
+
+
 def load_historical_data(filepath: str) -> pd.DataFrame:
     """Carga el archivo CSV del histórico de ventas.
 
@@ -23,7 +38,11 @@ def load_historical_data(filepath: str) -> pd.DataFrame:
     Returns:
         DataFrame con los datos cargados.
     """
-    df = pd.read_csv(filepath, parse_dates=["fecha"])
+    df = pd.read_csv(filepath)
+    df = _normalize_historical_columns(df)
+    if "fecha" not in df.columns:
+        raise ValueError("El histórico de ventas debe incluir una columna de fecha.")
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
     return df
 
 

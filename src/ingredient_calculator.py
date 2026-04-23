@@ -14,6 +14,39 @@ Flujo:
 import pandas as pd
 
 
+def _normalize_recipe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        "Producto": "producto",
+        "Insumo": "insumo",
+        "Cantidad_Por_Unidad": "cantidad_por_unidad",
+        "Unidad_Medida": "unidad_medida",
+    }
+    existing_map = {src: dst for src, dst in rename_map.items() if src in df.columns}
+    return df.rename(columns=existing_map)
+
+
+def load_inventory(filepath: str) -> pd.DataFrame:
+    """Carga el inventario físico actual.
+
+    Args:
+        filepath: Ruta al CSV con columnas ['Insumo', 'Stock_Fisico'].
+
+    Returns:
+        DataFrame normalizado con columnas ['insumo', 'stock_fisico'].
+    """
+    df = pd.read_csv(filepath)
+    required_cols = {"Insumo", "Stock_Fisico"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"Columnas faltantes en el inventario: {missing}")
+
+    inventory = df[["Insumo", "Stock_Fisico"]].copy()
+    inventory = inventory.rename(columns={"Insumo": "insumo", "Stock_Fisico": "stock_fisico"})
+    inventory["insumo"] = inventory["insumo"].astype(str).str.strip()
+    inventory["stock_fisico"] = pd.to_numeric(inventory["stock_fisico"], errors="coerce").fillna(0.0)
+    return inventory
+
+
 def load_standard_recipe(filepath: str) -> pd.DataFrame:
     """Carga el archivo CSV de la receta estándar.
 
@@ -24,6 +57,7 @@ def load_standard_recipe(filepath: str) -> pd.DataFrame:
         DataFrame con columnas ['producto', 'insumo', 'cantidad_por_unidad', 'unidad_medida'].
     """
     df = pd.read_csv(filepath)
+    df = _normalize_recipe_columns(df)
     required_cols = {"producto", "insumo", "cantidad_por_unidad", "unidad_medida"}
     missing = required_cols - set(df.columns)
     if missing:
@@ -65,3 +99,40 @@ def calculate_ingredient_requirements(
     ).reset_index(drop=True)
 
     return ingredient_totals
+
+
+def add_inventory_context(
+    requirements_df: pd.DataFrame,
+    inventory_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Agrega el contexto de inventario físico a los requerimientos.
+
+    Args:
+        requirements_df: DataFrame con columnas ['insumo', 'unidad_medida', 'cantidad_requerida'].
+        inventory_df: DataFrame con columnas ['insumo', 'stock_fisico'].
+
+    Returns:
+        DataFrame con columnas adicionales:
+            - stock_fisico
+            - faltante_vs_stock
+            - alerta_stock
+    """
+    required_cols = {"insumo", "unidad_medida", "cantidad_requerida"}
+    missing = required_cols - set(requirements_df.columns)
+    if missing:
+        raise ValueError(f"Columnas faltantes en requirements_df: {missing}")
+
+    inventory_required_cols = {"insumo", "stock_fisico"}
+    missing_inventory = inventory_required_cols - set(inventory_df.columns)
+    if missing_inventory:
+        raise ValueError(f"Columnas faltantes en inventory_df: {missing_inventory}")
+
+    enriched = requirements_df.copy()
+    inventory = inventory_df.copy()
+    inventory["insumo"] = inventory["insumo"].astype(str).str.strip()
+
+    enriched = enriched.merge(inventory, on="insumo", how="left")
+    enriched["stock_fisico"] = pd.to_numeric(enriched["stock_fisico"], errors="coerce").fillna(0.0)
+    enriched["faltante_vs_stock"] = (enriched["cantidad_requerida"] - enriched["stock_fisico"]).round(2)
+    enriched["alerta_stock"] = enriched["faltante_vs_stock"] > 0
+    return enriched
