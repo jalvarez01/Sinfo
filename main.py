@@ -11,8 +11,11 @@ Ejecuta el pipeline completo:
 Uso:
     python main.py [--sales <ruta_csv>] [--recipe <ruta_csv>] [--weeks <n>] [--output <ruta_csv>]
     python main.py --review [--suggestions <ruta_csv>] [--export-pdf]
+    python main.py --source sheets [--review]
 
 Argumentos opcionales:
+    --source      Fuente de datos: 'csv' (archivos locales) o 'sheets' (Google Sheets API)
+                  (default: csv)
     --sales       Ruta al CSV del histórico de ventas
                   (default: data/historico_ventas_sample.csv)
     --recipe      Ruta al CSV de la receta estándar
@@ -32,12 +35,22 @@ import sys
 
 import pandas as pd
 
-from src.data_cleaning import clean_historical_data
+# Carga las variables de entorno desde .env si python-dotenv está instalado.
+# Si no está instalado, se ignora silenciosamente (compatibilidad con CSV).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from src.data_cleaning import clean_dataframe, clean_historical_data
 from src.ingredient_calculator import (
     add_inventory_context,
     calculate_ingredient_requirements,
     load_inventory,
     load_standard_recipe,
+    normalize_inventory_dataframe,
+    normalize_recipe_dataframe,
 )
 from src.prediction_engine import generate_predictions
 
@@ -56,23 +69,36 @@ def run_pipeline(
     inventory_path: str = DEFAULT_INVENTORY_PATH,
     output_path: str = DEFAULT_OUTPUT_PATH,
     horizon_weeks: int = DEFAULT_HORIZON_WEEKS,
+    source: str = "csv",
 ) -> None:
     """Ejecuta el pipeline completo de predicción e imprime un resumen en consola.
 
     Args:
-        sales_path: Ruta al CSV con el histórico de ventas.
-        recipe_path: Ruta al CSV con la receta estándar.
-        inventory_path: Ruta al CSV con el inventario físico actual.
+        sales_path: Ruta al CSV con el histórico de ventas (solo si source=csv).
+        recipe_path: Ruta al CSV con la receta estándar (solo si source=csv).
+        inventory_path: Ruta al CSV con el inventario físico actual (solo si source=csv).
         output_path: Ruta donde se guardará el CSV con la sugerencia de insumos.
         horizon_weeks: Número de semanas a proyectar.
+        source: 'csv' para leer de archivos locales, 'sheets' para Google Sheets API.
     """
     print("=" * 60)
     print("  HU-01: Generación de Predicciones Basadas en Históricos")
+    print(f"  Fuente de datos: {source.upper()}")
     print("=" * 60)
 
     # ── Paso 1: Limpieza de datos ──────────────────────────────
     print("\n[1/3] Limpiando histórico de ventas…")
-    df_clean, report = clean_historical_data(sales_path)
+    if source == "sheets":
+        # Importación local para evitar requerir gspread cuando se usa CSV
+        from src.sheets_loader import (
+            load_historical_from_sheets,
+            load_inventory_from_sheets,
+            load_recipe_from_sheets,
+        )
+        df_raw = load_historical_from_sheets()
+        df_clean, report = clean_dataframe(df_raw)
+    else:
+        df_clean, report = clean_historical_data(sales_path)
     print(f"      Registros iniciales : {report['registros_iniciales']:,}")
     print(f"      Duplicados eliminados: {report['duplicados_eliminados']:,}")
     print(f"      Inválidos eliminados : {report['invalidos_eliminados']:,}")
@@ -86,23 +112,48 @@ def run_pipeline(
     print(predictions.head(5).to_string(index=False))
 
     # ── Paso 3: Cálculo de insumos ─────────────────────────────
-    print("\n[3/3] Calculando requerimientos de insumos…")
-    recipe = load_standard_recipe(recipe_path)
-    requirements = calculate_ingredient_requirements(predictions, recipe)
-    if os.path.exists(inventory_path):
+  # ── Paso 3: Los "insumos requeridos" son los productos predichos directamente ──
+    print("\n[3/3] Insumos identificados del histórico…")
+    
+    # El histórico ya son insumos, no necesita "explosión de receta"
+    # Simplemente renombramos las predicciones como "requerimientos"
+    requirements = predictions.copy()
+    requirements = requirements.rename(columns={
+        "producto": "insumo",
+        "ventas_proyectadas": "cantidad_requerida"
+    })
+    requirements["unidad_medida"] = "UNIDAD"  # Unidad por defecto; ajusta según sea necesario
+    
+    # Intentar cargar inventario desde Sheets si existe
+    if source == "sheets":
+        try:
+            inventory_raw = load_inventory_from_sheets()
+            inventory = normalize_inventory_dataframe(inventory_raw)
+            requirements = add_inventory_context(requirements, inventory)
+            print(f"      Inventario cargado desde Sheets: {len(inventory)} insumos")
+        except Exception as exc:
+            print(f"      [AVISO] No se pudo cargar inventario desde Sheets: {exc}")
+    elif os.path.exists(inventory_path):
         inventory = load_inventory(inventory_path)
         requirements = add_inventory_context(requirements, inventory)
         print(f"      Inventario cargado: {len(inventory)} insumos")
     else:
         print(f"      [AVISO] No se encontró inventario físico en: {inventory_path}")
+    
+    # Filtrar solo columnas necesarias
+    if "unidad_medida" not in requirements.columns:
+        requirements["unidad_medida"] = "UNIDAD"
+    
+    final_cols = ["insumo", "unidad_medida", "cantidad_requerida"]
+    if "stock_fisico" in requirements.columns:
+        final_cols.append("stock_fisico")
+    if "faltante_vs_stock" in requirements.columns:
+        final_cols.append("faltante_vs_stock")
+    if "alerta_stock" in requirements.columns:
+        final_cols.append("alerta_stock")
+    
+    requirements = requirements[[col for col in final_cols if col in requirements.columns]]
     print(f"      Insumos identificados: {len(requirements)}")
-
-    # ── Exportar resultados ────────────────────────────────────
-    requirements.to_csv(output_path, index=False)
-    print(f"\n✔  Sugerencia de insumos exportada a: {output_path}")
-    print("\n      Resumen de insumos críticos:")
-    print(requirements.to_string(index=False))
-    print("\n" + "=" * 60)
 
 
 def run_review(
@@ -132,51 +183,51 @@ def run_review(
     print("  HU-02: Interfaz de Ajuste y Validación Humana")
     print("=" * 60)
 
-    # ── Cargar sugerencias ─────────────────────────────────────
     if not os.path.exists(suggestions_path):
         print(f"\n[ERROR] No se encontró el archivo de sugerencias: {suggestions_path}")
-        print("        Ejecute primero el pipeline sin --review para generar las sugerencias.")
+        print("        Ejecute primero el pipeline sin '--review' para generarlo.")
         sys.exit(1)
 
-    requirements = pd.read_csv(suggestions_path)
-    review_df = prepare_review_table(requirements)
+    suggestions = pd.read_csv(suggestions_path)
+    review_df = prepare_review_table(suggestions)
 
+    # ── Mostrar tabla inicial de sugerencias ──────────────────
+    print("\nSugerencias generadas por la IA:")
     print_review_table(review_df)
 
-    # ── Bucle interactivo de ajuste ────────────────────────────
+    # ── Loop interactivo de ajuste ────────────────────────────
     print("\nIntroduzca los ajustes manuales. Escriba 'listo' para finalizar la revisión.")
-    print("Formato: <nombre_insumo> <nueva_cantidad>")
-    print("Ejemplo: Pan 150")
+    print("Formato: <nombre_insumo> <nueva_cantidad>\n")
 
     while True:
         try:
-            raw = input("\n> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nRevisión cancelada.")
-            return
-
-        if raw.lower() in ("listo", "ok", "done", ""):
+            entry = input("> ").strip()
+        except EOFError:
             break
 
-        parts = raw.rsplit(maxsplit=1)
+        if not entry:
+            continue
+        if entry.lower() in {"listo", "fin", "exit", "salir"}:
+            break
+
+        # Parsear: el nombre del insumo puede tener varias palabras
+        parts = entry.rsplit(" ", 1)
         if len(parts) != 2:
-            print("  Formato incorrecto. Use: <nombre_insumo> <nueva_cantidad>")
+            print("  [ERROR] Formato inválido. Use: <nombre_insumo> <cantidad>")
             continue
 
-        insumo_input, cantidad_input = parts
+        insumo_name, qty_str = parts
         try:
-            nueva_cantidad = float(cantidad_input.replace(",", "."))
+            new_qty = float(qty_str.replace(",", ""))
         except ValueError:
-            print(f"  Cantidad inválida: '{cantidad_input}'")
+            print(f"  [ERROR] Cantidad inválida: {qty_str}")
             continue
 
         try:
-            review_df = apply_override(review_df, insumo_input, nueva_cantidad)
-            flag = review_df.loc[review_df["insumo"] == insumo_input, "desviacion_significativa"].values[0]
-            msg = f"  ✔ {insumo_input}: {nueva_cantidad:,.2f}"
-            if flag:
-                msg += "  ⚠  Desviación > 20 % respecto a la sugerencia de la IA"
-            print(msg)
+            review_df = apply_override(review_df, insumo_name, new_qty)
+            row = review_df[review_df["insumo"].str.lower() == insumo_name.lower()].iloc[0]
+            warning = "  ⚠  Desviación > 20 % respecto a la sugerencia de la IA" if row.get("alerta_desviacion", False) else ""
+            print(f"  ✔ {insumo_name}: {new_qty:,.2f}{warning}")
         except (ValueError, RuntimeError) as exc:
             print(f"  [ERROR] {exc}")
 
@@ -209,6 +260,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Pipeline de predicción de insumos — Inversiones Pulso S.A.S."
     )
+    parser.add_argument(
+        "--source", choices=["csv", "sheets"], default="csv",
+        help="Fuente de datos: 'csv' (archivos locales) o 'sheets' (Google Sheets API)",
+    )
     parser.add_argument("--sales", default=DEFAULT_SALES_PATH, help="Ruta al CSV del histórico de ventas")
     parser.add_argument("--recipe", default=DEFAULT_RECIPE_PATH, help="Ruta al CSV de la receta estándar")
     parser.add_argument("--inventory", default=DEFAULT_INVENTORY_PATH, help="Ruta al CSV del inventario físico actual")
@@ -239,6 +294,7 @@ def main(argv=None):
                 inventory_path=args.inventory,
                 output_path=args.output,
                 horizon_weeks=args.weeks,
+                source=args.source,
             )
         run_review(suggestions_path=suggestions_path, export_pdf=args.export_pdf)
     else:
@@ -248,6 +304,7 @@ def main(argv=None):
             inventory_path=args.inventory,
             output_path=args.output,
             horizon_weeks=args.weeks,
+            source=args.source,
         )
 
 

@@ -26,15 +26,13 @@ def _normalize_recipe_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_inventory(filepath: str) -> pd.DataFrame:
-    """Carga el inventario físico actual.
-
-    Args:
-        filepath: Ruta al CSV con columnas ['Insumo', 'Stock_Fisico'].
-
-    Returns:
-        DataFrame normalizado con columnas ['insumo', 'stock_fisico'].
-    """
+    """Carga el inventario físico actual desde CSV."""
     df = pd.read_csv(filepath)
+    return normalize_inventory_dataframe(df)
+
+
+def normalize_inventory_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza un DataFrame de inventario (independiente de la fuente)."""
     required_cols = {"Insumo", "Stock_Fisico"}
     missing = required_cols - set(df.columns)
     if missing:
@@ -47,22 +45,20 @@ def load_inventory(filepath: str) -> pd.DataFrame:
     return inventory
 
 
-def load_standard_recipe(filepath: str) -> pd.DataFrame:
-    """Carga el archivo CSV de la receta estándar.
-
-    Args:
-        filepath: Ruta al archivo CSV con la receta estándar.
-
-    Returns:
-        DataFrame con columnas ['producto', 'insumo', 'cantidad_por_unidad', 'unidad_medida'].
-    """
-    df = pd.read_csv(filepath)
-    df = _normalize_recipe_columns(df)
+def normalize_recipe_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza un DataFrame de receta estándar (independiente de la fuente)."""
+    df = _normalize_recipe_columns(df.copy())
     required_cols = {"producto", "insumo", "cantidad_por_unidad", "unidad_medida"}
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(f"Columnas faltantes en la receta estándar: {missing}")
     return df
+
+
+def load_standard_recipe(filepath: str) -> pd.DataFrame:
+    """Carga el archivo CSV de la receta estándar."""
+    df = pd.read_csv(filepath)
+    return normalize_recipe_dataframe(df)
 
 
 def calculate_ingredient_requirements(

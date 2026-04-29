@@ -92,22 +92,20 @@ def normalize_text_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def clean_historical_data(filepath: str) -> tuple[pd.DataFrame, dict]:
-    """Pipeline completo de limpieza del histórico de ventas.
+def clean_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Pipeline de limpieza aplicado a un DataFrame ya cargado.
 
-    Args:
-        filepath: Ruta al archivo CSV con el histórico de ventas.
-
-    Returns:
-        Tupla (DataFrame limpio, diccionario con informe de limpieza).
+    Útil cuando los datos provienen de Google Sheets API en lugar de CSV.
     """
-    df = load_historical_data(filepath)
-    initial_count = len(df)
+    df = _normalize_historical_columns(df.copy())
+    if "fecha" not in df.columns:
+        raise ValueError("El histórico debe incluir una columna de fecha.")
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
 
+    initial_count = len(df)
     df = normalize_text_columns(df)
     df, duplicates_removed = remove_duplicates(df)
     df, invalid_removed = remove_invalid_quantities(df)
-
     df = df.sort_values("fecha").reset_index(drop=True)
 
     report = {
@@ -116,5 +114,10 @@ def clean_historical_data(filepath: str) -> tuple[pd.DataFrame, dict]:
         "invalidos_eliminados": invalid_removed,
         "registros_finales": len(df),
     }
-
     return df, report
+
+
+def clean_historical_data(filepath: str) -> tuple[pd.DataFrame, dict]:
+    """Pipeline completo de limpieza del histórico de ventas desde CSV."""
+    df = load_historical_data(filepath)
+    return clean_dataframe(df)

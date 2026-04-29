@@ -11,3 +11,16 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Credenciales — NUNCA subir a Git
+.env
+credentials/
+*.json
+
+# Entornos virtuales
+venv/
+
+# mac
+.DS_Store
+macOS/
+macOS_*.log
