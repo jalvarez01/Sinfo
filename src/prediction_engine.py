@@ -100,3 +100,4 @@ def generate_predictions(
         .reset_index(drop=True)
     )
     return predictions_df
+
