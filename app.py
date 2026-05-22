@@ -1,16 +1,11 @@
 """
-SIPS API v2 - Cloud Run
-=========================
-Endpoints:
-  POST /predict                  → Modo COMPRAS (fallback, datos actuales)
-  POST /predict-from-sales       → Modo VENTAS (preciso, cuando lleguen los datos)
-  POST /predict/sede/<sede>      → Una sola sede (cualquier modo)
-  GET  /health                   → Health check
-  GET  /                         → Info
-  GET  /detect-sales-schema      → Auto-detecta estructura de pestaña Ventas
+SIPS API v2.1 - Cloud Run
+==========================
+Cambio: agrega columna 'id' (UUID) en SIPS_Sugerencias para AppSheet.
 """
 
 import os
+import uuid
 from datetime import datetime
 from flask import Flask, jsonify, request
 import json
@@ -37,11 +32,7 @@ from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
-# ─────────────────────────────────────────────────────────
-# CONFIG
-# ─────────────────────────────────────────────────────────
-
-DEFAULT_SEDES = ["S-01", "S-02", "S-03", "S-04"]
+DEFAULT_SEDES = ["Gastrobar", "Express", "Bistro", "Mekato"]
 SEDES_NAMES = {
     "S-01": "Gastrobar",
     "S-02": "Express",
@@ -54,32 +45,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CREDENTIALS_PATH = os.path.join(BASE_DIR, "credentials", "google_service_account.json")
 
 
-# ─────────────────────────────────────────────────────────
-# HOME / HEALTH
-# ─────────────────────────────────────────────────────────
-
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
         "service": "SIPS - Sistema de Pedido Sugerido",
-        "version": "2.0",
+        "version": "2.1",
         "sedes": SEDES_NAMES,
         "endpoints": {
             "POST /predict": "Modo COMPRAS (Consolidado_productos)",
-            "POST /predict-from-sales": "Modo VENTAS (más preciso, requiere pestaña Ventas)",
+            "POST /predict-from-sales": "Modo VENTAS (más preciso)",
             "POST /predict/sede/<sede>": "Una sola sede",
-            "GET /detect-sales-schema": "Auto-detecta columnas de pestaña Ventas",
+            "GET /detect-sales-schema": "Auto-detecta columnas de Ventas",
             "GET /health": "Health check",
         },
-        "improvements_v2": [
-            "Mediana en lugar de promedio (robusto a outliers)",
-            "Cap por percentil P95",
-            "Filtros IQR antes de entrenar",
-            "Sanity checks (predicción no puede ser >2x el máximo histórico real)",
-            "Auto-detección de columnas de Ventas",
-            "Cruce ventas × recetas = consumo real",
-            "Indicador de confiabilidad (ALTA/MEDIA/BAJA)",
-        ],
         "status": "online"
     })
 
@@ -89,37 +67,25 @@ def health():
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
 
 
-# ─────────────────────────────────────────────────────────
-# AUTO-DETECT
-# ─────────────────────────────────────────────────────────
-
 @app.route("/detect-sales-schema", methods=["GET"])
 def detect_schema():
-    """Detecta estructura de la pestaña de Ventas."""
     try:
         sheet_name = request.args.get("sheet", os.getenv("SHEET_VENTAS", "Ventas"))
         df = load_sheet_as_dataframe(sheet_name)
         schema = auto_detect_schema(df)
-        
         return jsonify({
             "status": "success",
             "sheet_name": sheet_name,
             "columns_found": list(df.columns),
             "schema_detected": schema,
             "sample_rows": df.head(3).to_dict(orient="records"),
-            "next_step": "Si los campos críticos (fecha, producto, cantidad) estan OK, usa POST /predict-from-sales"
         })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────
-# PREDICT v1 (modo COMPRAS — fallback)
-# ─────────────────────────────────────────────────────────
-
 @app.route("/predict", methods=["POST"])
 def predict_compras():
-    """Predice con datos de compras (Consolidado_productos)."""
     try:
         data = request.get_json(silent=True) or {}
         weeks = data.get("weeks", DEFAULT_WEEKS)
@@ -139,18 +105,12 @@ def predict_compras():
             "predictions": result["predictions"][:50],
             "total_records": len(result["predictions"])
         })
-    
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────
-# PREDICT v2 (modo VENTAS — preciso)
-# ─────────────────────────────────────────────────────────
-
 @app.route("/predict-from-sales", methods=["POST"])
 def predict_from_sales():
-    """Predice convirtiendo ventas × recetas = consumo."""
     try:
         data = request.get_json(silent=True) or {}
         weeks = data.get("weeks", DEFAULT_WEEKS)
@@ -173,17 +133,11 @@ def predict_from_sales():
             "predictions": result["predictions"][:50],
             "total_records": len(result["predictions"])
         })
-    
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ─────────────────────────────────────────────────────────
-# PIPELINES
-# ─────────────────────────────────────────────────────────
-
 def run_pipeline_compras(weeks: int, sedes: list) -> dict:
-    """Pipeline con datos de compras (Consolidado_productos)."""
     df_raw = load_historical_from_sheets()
     df_clean, report = clean_dataframe(df_raw)
     validation = validate_historical_data(df_clean)
@@ -226,8 +180,7 @@ def run_pipeline_compras(weeks: int, sedes: list) -> dict:
             "horizonte_semanas": weeks,
             "validacion": {
                 "huecos_detectados": validation["huecos_detectados"],
-                "outliers": validation["outliers_detectados"],
-                "advertencia": "Los datos son compras, no consumo real. Error esperado: 20-30%."
+                "outliers": validation["outliers_detectados"]
             }
         },
         "predictions": pred_combined.to_dict(orient="records")
@@ -235,7 +188,6 @@ def run_pipeline_compras(weeks: int, sedes: list) -> dict:
 
 
 def run_pipeline_ventas(weeks: int, sedes: list, column_mapping: dict = None) -> dict:
-    """Pipeline con datos de ventas (PRECISO)."""
     sales_df = load_sales_from_sheets(column_mapping=column_mapping)
     recipes_df = load_recipe_from_sheets()
     consumption_df = convert_sales_to_consumption(
@@ -243,7 +195,7 @@ def run_pipeline_ventas(weeks: int, sedes: list, column_mapping: dict = None) ->
     )
     
     if len(consumption_df) == 0:
-        raise ValueError("No se generó consumo. Verifica que recetas y ventas tengan nombres compatibles.")
+        raise ValueError("No se generó consumo")
     
     df_clean, report = clean_dataframe(consumption_df)
     validation = validate_historical_data(df_clean)
@@ -280,7 +232,6 @@ def run_pipeline_ventas(weeks: int, sedes: list, column_mapping: dict = None) ->
         "summary": {
             "modo": "VENTAS_PRECISO",
             "ventas_procesadas": len(sales_df),
-            "registros_de_consumo": report["registros_iniciales"],
             "productos_predichos": len(pred_combined),
             "sedes_procesadas": len(sedes_a_procesar),
             "horizonte_semanas": weeks,
@@ -291,12 +242,8 @@ def run_pipeline_ventas(weeks: int, sedes: list, column_mapping: dict = None) ->
     }
 
 
-# ─────────────────────────────────────────────────────────
-# WRITE TO SHEETS
-# ─────────────────────────────────────────────────────────
-
 def write_to_sheets_tab(predictions: list, sheet_tab: str = "SIPS_Sugerencias") -> None:
-    """Escribe predicciones a una pestaña."""
+    """Escribe predicciones con columna 'id' UUID al inicio."""
     with open(CREDENTIALS_PATH) as f:
         creds_dict = json.load(f)
     
@@ -316,17 +263,23 @@ def write_to_sheets_tab(predictions: list, sheet_tab: str = "SIPS_Sugerencias") 
         ws = sh.worksheet(sheet_tab)
         ws.clear()
     except gspread.exceptions.WorksheetNotFound:
-        ws = sh.add_worksheet(title=sheet_tab, rows=1000, cols=15)
+        ws = sh.add_worksheet(title=sheet_tab, rows=1000, cols=20)
     
     if predictions:
         df = pd.DataFrame(predictions)
+        
+        # ID UUID único por fila (KEY para AppSheet)
+        df.insert(0, "id", [str(uuid.uuid4()) for _ in range(len(df))])
+        
         df["fecha_generacion"] = datetime.now().strftime("%Y-%m-%d %H:%M")
         df["estado"] = "PENDIENTE_REVISION"
         df["cantidad_final_aprobada"] = ""
         df["chef_aprobador"] = ""
         df["fecha_aprobacion"] = ""
         
+        # Orden de columnas
         ordered = [
+            "id",
             "sede", "insumo", "cantidad_requerida",
             "consumo_semanal_tipico", "confiabilidad",
             "metodo", "n_semanas_historico", "advertencias",
