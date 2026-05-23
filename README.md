@@ -368,8 +368,6 @@ python -m pytest tests/ -v
 - Pablo Benítez
 - Santiago Meneses
 - Santiago Salazar
-- Diego Angarita
-
 ---
 
 ## Licencia
